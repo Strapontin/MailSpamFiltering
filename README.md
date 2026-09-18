@@ -1,5 +1,13 @@
 # Outlook Spam Bot — Graph API Webhook (Docker)
 
+## To rebuild and recreate just the app container without touching cloudflared:
+
+```bash
+docker compose up -d --build --no-deps app
+```
+
+---
+
 Two containers, run together with `docker compose`:
 
 - **app** — the Python/Flask webhook listener

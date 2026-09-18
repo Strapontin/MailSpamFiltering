@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 import msal
 import requests
 from flask import Flask, request, Response
+from waitress import serve
 
 # ---------------------------------------------------------------------------
 # Configuration - set these via environment variables (see .env.example)
@@ -84,11 +85,11 @@ def get_access_token():
     if not result:
         # First run: interactive device code login
         flow = app.initiate_device_flow(scopes=SCOPES)
-        print("FLOW:", flow)
+        print(get_time(), "FLOW:", flow)
         if "user_code" not in flow:
             raise RuntimeError(f"Failed to create device flow: {flow}")
         # e.g. "Go to https://microsoft.com/devicelogin and enter code XXXX"
-        print(flow["message"])
+        print(get_time(), flow["message"])
         result = app.acquire_token_by_device_flow(flow)
 
     save_token_cache(cache)
@@ -118,7 +119,7 @@ def wait_for_tunnel_url(path, timeout=120):
             content = open(path).read().strip()
             if content:
                 if content != last_content:
-                    print(f"Tunnel URL detected: {content}")
+                    print(get_time(), f"Tunnel URL detected: {content}")
                     last_content = content
                 return content
         time.sleep(2)
@@ -128,24 +129,24 @@ def wait_for_tunnel_url(path, timeout=120):
     )
 
 
-def wait_for_tunnel_reachable(base_url, timeout=90):
+def wait_for_tunnel_reachable(base_url, timeout=300):
     """Quick tunnel hostnames can take a few seconds to become resolvable
     worldwide after cloudflared prints them. Poll from inside our own
     container until the URL actually responds, so we don't hand Graph a
     dead hostname (which it'll reject with a DNS resolution error)."""
     waited = 0
-    print("wait_for_tunnel_reachable:", base_url)
+    print(get_time(), "wait_for_tunnel_reachable:", base_url)
     while waited < timeout:
-        print(f"waited {waited} seconds")
+        print(get_time(), f"waited {waited} seconds")
         try:
             # Any response (even 404/405) proves DNS + routing are working.
             requests.get(base_url, timeout=5)
-            print(f"Tunnel confirmed reachable: {base_url}")
+            print(get_time(), f"Tunnel confirmed reachable: {base_url}")
             return
         except requests.exceptions.RequestException:
             pass
-        time.sleep(3)
-        waited += 3
+        time.sleep(5)
+        waited += 5
     raise RuntimeError(
         f"Tunnel at {base_url} never became reachable after {timeout}s")
 
@@ -154,30 +155,31 @@ def delete_subscription(sub_id):
     resp = requests.delete(
         f"{GRAPH_ROOT}/subscriptions/{sub_id}", headers=graph_headers())
     if resp.status_code not in (204, 404):
-        print(
-            f"Warning: could not delete old subscription {sub_id}: {resp.status_code} {resp.text}")
+        print(get_time(),
+              f"Warning: could not delete old subscription {sub_id}: {resp.status_code} {resp.text}")
 
 
-def create_subscription():
+def create_subscription_junkemail():
     expiration = (datetime.now(timezone.utc) +
                   timedelta(minutes=4200)).isoformat()
     body = {
         "changeType": "created",
         "notificationUrl": NOTIFICATION_URL,
-        "resource": "me/mailFolders('Inbox')/messages",
+        "resource": "me/mailFolders('junkemail')/messages",
         "expirationDateTime": expiration,
         "clientState": CLIENT_STATE,
     }
     resp = requests.post(f"{GRAPH_ROOT}/subscriptions",
                          headers=graph_headers(), json=body)
     if not resp.ok:
-        print(f"Subscription creation failed: {resp.status_code} {resp.text}")
+        print(get_time(),
+              f"Subscription creation failed: {resp.status_code} {resp.text}")
     resp.raise_for_status()
     sub = resp.json()
     with open(SUBSCRIPTION_FILE, "w") as f:
         json.dump(sub, f)
-    print(
-        f"Subscription created, id={sub['id']}, expires {sub['expirationDateTime']}")
+    print(get_time(),
+          f"Subscription created, id={sub['id']}, expires {sub['expirationDateTime']}")
     return sub
 
 
@@ -190,7 +192,7 @@ def renew_subscription(sub_id):
         json={"expirationDateTime": expiration},
     )
     resp.raise_for_status()
-    print(f"Subscription {sub_id} renewed until {expiration}")
+    print(get_time(), f"Subscription {sub_id} renewed until {expiration}")
 
 
 def subscription_renewal_loop():
@@ -201,11 +203,11 @@ def subscription_renewal_loop():
                 sub = json.load(open(SUBSCRIPTION_FILE))
                 renew_subscription(sub["id"])
         except Exception as e:
-            print(f"Renewal failed, recreating subscription: {e}")
+            print(get_time(), f"Renewal failed, recreating subscription: {e}")
             try:
-                create_subscription()
+                create_subscription_junkemail()
             except Exception as e2:
-                print(f"Recreate also failed: {e2}")
+                print(get_time(), f"Recreate also failed: {e2}")
 
 # ---------------------------------------------------------------------------
 # Spam logic - customize this function
@@ -231,6 +233,9 @@ def is_spam(message):
         "emailAddress", {}).get("address") or "").lower()
     subject = (message.get("subject") or "").lower()
     body_preview = (message.get("bodyPreview") or "").lower()
+
+    if subject.endswith("test_spam"):
+        return True
 
     if any(sender.endswith("@" + d) for d in TRUSTED_DOMAINS):
         return False
@@ -327,22 +332,35 @@ def process_new_message(message_id):
             sender = message.get("from", {}).get(
                 "emailAddress", {}).get("address", "unknown")
             subject = message.get("subject", "(no subject)")
-            print(f"Marked as read: \"{subject}\" from {sender}")
+            print(get_time(),
+                  f"Spam marked as read: \"{subject}\" from '{sender}'")
             log_marked_read(sender, subject)
         else:
-            print(f"Left unread: {message.get('subject')}")
+            print(get_time(), f"Left unread: {message.get('subject')}")
     except Exception as e:
-        print(f"Error processing message {message_id}: {e}")
+        print(get_time(), f"Error processing message {message_id}: {e}")
+
+
+def get_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 if __name__ == "__main__":
-    print("app.py starting...")
+    print(get_time(), "app.py starting...")
     os.makedirs(DATA_DIR, exist_ok=True)
 
     # Graph validates the notification URL while creating the subscription,
     # so the webhook must be listening before that request is made.
+
+    # threading.Thread(
+    #     target=app_flask.run,
+    #     kwargs={"host": "0.0.0.0", "port": 5000},
+    #     daemon=True,
+    # ).start()
+
     threading.Thread(
-        target=app_flask.run,
+        target=serve,
+        args=(app_flask,),
         kwargs={"host": "0.0.0.0", "port": 5000},
         daemon=True,
     ).start()
@@ -360,22 +378,23 @@ if __name__ == "__main__":
 
     if existing_sub and existing_sub.get("notificationUrl") == NOTIFICATION_URL:
         try:
-            print("app.py renewing subscription...")
+            print(get_time(), "app.py renewing subscription...")
             renew_subscription(existing_sub["id"])
         except Exception:
-            print("app.py creating subscription")
-            create_subscription()
+            print(get_time(), "app.py creating subscription")
+            create_subscription_junkemail()
     else:
         # Either no subscription yet, or the tunnel URL changed since last
         # run (common with quick tunnels) - the old subscription is no
         # longer reachable, so drop it and make a fresh one.
         if existing_sub:
-            print("Tunnel URL changed since last run, recreating subscription.")
+            print(
+                get_time(), "Tunnel URL changed since last run, recreating subscription.")
             delete_subscription(existing_sub["id"])
-        print("app.py creating subscription (file was not found)")
-        create_subscription()
+        print(get_time(), "app.py creating subscription (file was not found)")
+        create_subscription_junkemail()
 
     threading.Thread(target=subscription_renewal_loop, daemon=True).start()
 
-    print("Thread created. Flask is running...")
+    print(get_time(), "Thread created. Flask is running...")
     threading.Event().wait()

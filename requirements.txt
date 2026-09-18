@@ -1,3 +1,4 @@
 flask
 msal
 requests
+waitress
