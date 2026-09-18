@@ -1,0 +1,16 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache curl ca-certificates grep
+
+# BuildKit sets TARGETARCH automatically (amd64, arm64, arm) matching the
+# host or --platform you build for - this is what makes the same Dockerfile
+# work unchanged on your dev machine and later on the Raspberry Pi.
+ARG TARGETARCH
+RUN curl -Lo /usr/local/bin/cloudflared \
+    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${TARGETARCH}" \
+    && chmod +x /usr/local/bin/cloudflared
+
+COPY cloudflared-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
