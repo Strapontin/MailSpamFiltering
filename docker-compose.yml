@@ -7,30 +7,26 @@ services:
     volumes:
       - bot-data:/data
       - tunnel-info:/shared
-    ports:
-      - "5000:5000"
 
   cloudflared:
-    build:
-      context: .
-      dockerfile: dockerfile.cloudflared
+    image: cloudflare/cloudflared:latest
     container_name: outlook-spam-bot-tunnel
     restart: unless-stopped
     depends_on:
       - app
-    volumes:
-      - tunnel-info:/shared
-    # This custom image's entrypoint already runs the quick tunnel and
-    # writes its URL to /shared/tunnel_url.txt - no command needed here.
-    # --- Named tunnel alternative (stable URL, needs a domain) ---
-    # This doesn't need the shell wrapper, so switch back to the official
-    # image entirely instead of the custom build:
-    #   image: cloudflare/cloudflared:latest
-    #   command: tunnel run
-    #   environment:
-    #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    # and set NOTIFICATION_URL directly in .env instead of auto-detecting.
-
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    # --- Quick tunnel alternative (no domain needed, URL changes on restart) ---
+    # If you ever want to switch back, replace the image/command/environment
+    # above with the custom build instead:
+    #   build:
+    #     context: .
+    #     dockerfile: Dockerfile.cloudflared
+    #   volumes:
+    #     - tunnel-info:/shared
+    # and unset NOTIFICATION_URL in .env so app.py auto-detects it again.
+ 
 volumes:
   bot-data:
   tunnel-info:
