@@ -316,9 +316,10 @@ def is_spam(message, label):
               f"[{label}] Marking following mail as NOT SPAM. Reason: Trusted sender")
         return False
 
-    # detects '@' followed by at least one domain character, then '.' followed by 1-3 letters until the end of string
-    real_mail_pattern = re.compile(r"@[^@\s]+\.[A-Za-z]{1,3}$")
-    if not real_mail_pattern.search(sender):
+    # detects '@' preceded by exactly 8 uppercase char/digits, followed by 28 char/digits
+    real_mail_pattern = re.compile(
+        r"^[A-Z0-9]{8}@[A-Z0-9]{28}(\.[a-zA-Z]{1,3})?$")
+    if real_mail_pattern.search(sender):
         print(get_time(),
               f"[{label}] Marking following mail as SPAM. Reason: sender not matching email pattern")
         return True
@@ -329,6 +330,8 @@ def is_spam(message, label):
               f"[{label}] Marking following mail as SPAM. Reason: spam keywords detected in subject or body")
         return True
 
+    print(get_time(),
+          f"[{label}] Marking following mail as NOT SPAM. Reason: No condition returned True")
     return False
 
 # ---------------------------------------------------------------------------
