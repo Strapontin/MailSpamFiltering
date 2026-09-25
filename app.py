@@ -413,15 +413,11 @@ app_flask = Flask(__name__)
 
 @app_flask.route("/notifications", methods=["GET", "POST"])
 def notifications():
-    print("\n\n\n\n\n\n")
-    print(get_time(), "Notification received:", request.args)
     validation_token = request.args.get("validationToken")
     if validation_token:
-        print(get_time(), "validation token")
         return Response(validation_token, mimetype="text/plain", status=200)
 
     data = request.get_json(silent=True) or {}
-    print("DATA RECEIVED FROM NOTIFICATIONS:", data)
     for notif in data.get("value", []):
         label = label_for_client_state(notif.get("clientState"))
         if label is None:
