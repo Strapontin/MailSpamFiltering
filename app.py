@@ -78,6 +78,20 @@ def get_time():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+# get_access_token() reads-then-writes each account's token cache file, and
+# is called concurrently from several places (per-notification handler
+# threads, the daily renewal loop, startup). Without serializing access per
+# account, two concurrent writes to the same file can interleave and
+# corrupt it (surfaces later as a JSON "Extra data" error on load). One
+# lock per account label keeps concurrent calls for the SAME account safe
+# without blocking different accounts from proceeding in parallel.
+_token_locks = {label: threading.Lock() for label in ACCOUNT_LABELS}
+
+
+def _token_lock(label):
+    return _token_locks.setdefault(label, threading.Lock())
+
+
 def token_cache_file(label):
     return os.path.join(DATA_DIR, f"token_cache_{label}.bin")
 
@@ -111,36 +125,49 @@ def load_token_cache(label):
 
 def save_token_cache(label, cache):
     if cache.has_state_changed:
-        with open(token_cache_file(label), "w") as f:
+        path = token_cache_file(label)
+        tmp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+        # Write to a temp file first, then atomically rename over the real
+        # one. os.replace() is atomic at the filesystem level, so even a
+        # concurrent reader or a crash mid-write can never see a partial/
+        # corrupted file - it either sees the old complete file or the new
+        # complete file, never a mix of both.
+        with open(tmp_path, "w") as f:
             f.write(cache.serialize())
+        os.replace(tmp_path, path)
 
 
 def get_access_token(label):
-    cache = load_token_cache(label)
-    app = msal.PublicClientApplication(
-        CLIENT_ID, authority=AUTHORITY, token_cache=cache)
+    # Serialize the whole read-modify-write cycle per account, so two
+    # concurrent calls for the same mailbox (e.g. a notification handler
+    # thread and the daily renewal loop firing at the same moment) can't
+    # both load, refresh, and save the cache file at once and corrupt it.
+    with _token_lock(label):
+        cache = load_token_cache(label)
+        app = msal.PublicClientApplication(
+            CLIENT_ID, authority=AUTHORITY, token_cache=cache)
 
-    accounts = app.get_accounts()
-    result = None
-    if accounts:
-        result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        accounts = app.get_accounts()
+        result = None
+        if accounts:
+            result = app.acquire_token_silent(SCOPES, account=accounts[0])
 
-    if not result:
-        # First run for this account: interactive device code login
-        flow = app.initiate_device_flow(scopes=SCOPES)
-        if "user_code" not in flow:
-            raise RuntimeError(
-                f"[{label}] Failed to create device flow: {flow}")
-        print(
-            get_time(), f"[{label}] Sign in with a browser to authenticate this mailbox:")
-        print(get_time(), flow["message"])
-        result = app.acquire_token_by_device_flow(flow)
+        if not result:
+            # First run for this account: interactive device code login
+            flow = app.initiate_device_flow(scopes=SCOPES)
+            if "user_code" not in flow:
+                raise RuntimeError(
+                    f"[{label}] Failed to create device flow: {flow}")
+            print(
+                get_time(), f"[{label}] Sign in with a browser to authenticate this mailbox:")
+            print(get_time(), flow["message"])
+            result = app.acquire_token_by_device_flow(flow)
 
-    save_token_cache(label, cache)
+        save_token_cache(label, cache)
 
-    if "access_token" not in result:
-        raise RuntimeError(f"[{label}] Could not get token: {result}")
-    return result["access_token"]
+        if "access_token" not in result:
+            raise RuntimeError(f"[{label}] Could not get token: {result}")
+        return result["access_token"]
 
 
 def graph_headers(label):
@@ -217,6 +244,7 @@ def create_subscription(label):
     body = {
         "changeType": "created",
         "notificationUrl": NOTIFICATION_URL,
+        # "resource": "me/mailFolders('inbox')/messages",
         "resource": "me/mailFolders('junkemail')/messages",
         "expirationDateTime": expiration,
         "clientState": client_state_for(label),
@@ -228,8 +256,11 @@ def create_subscription(label):
               f"[{label}] Subscription creation failed: {resp.status_code} {resp.text}")
     resp.raise_for_status()
     sub = resp.json()
-    with open(subscription_file(label), "w") as f:
+    path = subscription_file(label)
+    tmp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(tmp_path, "w") as f:
         json.dump(sub, f)
+    os.replace(tmp_path, path)
     print(get_time(
     ), f"[{label}] Subscription created, id={sub['id']}, expires {sub['expirationDateTime']}")
     return sub
@@ -382,11 +413,15 @@ app_flask = Flask(__name__)
 
 @app_flask.route("/notifications", methods=["GET", "POST"])
 def notifications():
+    print("\n\n\n\n\n\n")
+    print(get_time(), "Notification received:", request.args)
     validation_token = request.args.get("validationToken")
     if validation_token:
+        print(get_time(), "validation token")
         return Response(validation_token, mimetype="text/plain", status=200)
 
     data = request.get_json(silent=True) or {}
+    print("DATA RECEIVED FROM NOTIFICATIONS:", data)
     for notif in data.get("value", []):
         label = label_for_client_state(notif.get("clientState"))
         if label is None:
