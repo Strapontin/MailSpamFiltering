@@ -348,12 +348,16 @@ def is_spam(message, label):
         return False
 
     # detects '@' preceded by exactly 8 uppercase char/digits, followed by 28 char/digits
+    # Used to detect: AAAAAA1A@AAAA8NWA0OS7FZLAAAAAAAAAAAAD.com
     real_mail_pattern = re.compile(
         r"^[A-Z0-9]{8}@[A-Z0-9]{28}(\.[a-zA-Z]{1,3})?$")
+
     # detects '@' followed by at least one domain character, a literal '.', and 1 to 3 letters until the end of the string
-    domain_extension_pattern = TLD_PATTERN = re.compile(
-        r"@[^@\s]+\.[A-Za-z]{1,3}$")
-    if real_mail_pattern.search(sender) or not domain_extension_pattern.search(sender):
+    # Used to detect: no-reply@abcdefosgucovcsw
+    missing_domain_extension_pattern = re.compile(
+        r"^[^@\s]+@(?![^@\s]+\.[A-Za-z]{1,3}$)[^@\s]+$")
+
+    if real_mail_pattern.search(sender) or missing_domain_extension_pattern.search(sender):
         print(get_time(),
               f"[{label}] Marking following mail as SPAM. Reason: sender not matching email pattern")
         return True
@@ -435,17 +439,18 @@ def notifications():
 def process_new_message(label, message_id):
     try:
         message = fetch_message(label, message_id)
+        sender = message.get("from", {}).get(
+            "emailAddress", {}).get("address", "unknown")
+        subject = message.get("subject", "(no subject)")
+
         if is_spam(message, label):
             mark_as_read(label, message_id)
-            sender = message.get("from", {}).get(
-                "emailAddress", {}).get("address", "unknown")
-            subject = message.get("subject", "(no subject)")
             print(get_time(),
-                  f"[{label}] Marked as read: \"{subject}\" from {sender}")
+                  f"[{label}] Marked as read: \"{subject}\" from '{sender}'")
             log_marked_read(label, sender, subject)
         else:
             print(get_time(),
-                  f"[{label}] Left unread: {message.get('subject')}")
+                  f"[{label}] Left unread: {subject} from '{sender}'")
     except Exception as e:
         print(get_time(),
               f"[{label}] Error processing message {message_id}: {e}")
