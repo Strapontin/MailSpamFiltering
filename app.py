@@ -338,11 +338,9 @@ def get_header(message, header_name):
 
 def is_spam(message, label):
     sender = (message.get("from", {}).get(
-        "emailAddress", {}).get("address") or "").lower()
-    subject = (message.get("subject") or "").lower()
-    body_preview = (message.get("bodyPreview") or "").lower()
+        "emailAddress", {}).get("address") or "")
 
-    if any(sender.endswith("@" + d) for d in TRUSTED_DOMAINS):
+    if any(sender.lower().endswith("@" + d) for d in TRUSTED_DOMAINS):
         print(get_time(),
               f"[{label}] Marking following mail as NOT SPAM. Reason: Trusted sender")
         return False
@@ -362,7 +360,10 @@ def is_spam(message, label):
               f"[{label}] Marking following mail as SPAM. Reason: sender not matching email pattern")
         return True
 
+    subject = (message.get("subject") or "").lower()
+    body_preview = (message.get("bodyPreview") or "").lower()
     text = f"{subject} {body_preview}"
+
     if any(keyword in text for keyword in SPAM_KEYWORDS):
         print(get_time(),
               f"[{label}] Marking following mail as SPAM. Reason: spam keywords detected in subject or body")
