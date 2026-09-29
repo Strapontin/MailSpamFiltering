@@ -366,11 +366,18 @@ def is_spam(message, label):
 
     if any(keyword in text for keyword in SPAM_KEYWORDS):
         print(get_time(),
-              f"[{label}] Marking following mail as SPAM. Reason: spam keywords detected in subject or body")
+              f"[{label}] Marking following mail as ---SPAM---. Reason: spam keywords detected in subject or body")
+        return True
+
+    # Match any lowercase letter
+    lowercase_letter_pattern = re.compile(r"\p{Ll}")
+    if (not lowercase_letter_pattern.search(subject)) and (not lowercase_letter_pattern.search(body_preview)):
+        print(get_time(),
+              f"[{label}] Marking following mail as ---SPAM---. Reason: no lowercase letter detected in subject or body preview")
         return True
 
     print(get_time(),
-          f"[{label}] Marking following mail as NOT SPAM. Reason: No condition returned True")
+          f"[{label}] Marking following mail as ---NOT SPAM---. Reason: No condition returned True")
     return False
 
 # ---------------------------------------------------------------------------
@@ -443,15 +450,18 @@ def process_new_message(label, message_id):
         sender = message.get("from", {}).get(
             "emailAddress", {}).get("address", "unknown")
         subject = message.get("subject", "(no subject)")
+        body_preview = (message.get("bodyPreview") or "")
+
+        print()
 
         if is_spam(message, label):
             mark_as_read(label, message_id)
             print(get_time(),
-                  f"[{label}] Marked as read: \"{subject}\" from '{sender}'")
+                  f"[{label}] Marked as read: '{subject}' from '{sender}' ({body_preview})")
             log_marked_read(label, sender, subject)
         else:
             print(get_time(),
-                  f"[{label}] Left unread: {subject} from '{sender}'")
+                  f"[{label}] Left unread: '{subject}' from '{sender}' ({body_preview})")
     except Exception as e:
         print(get_time(),
               f"[{label}] Error processing message {message_id}: {e}")
