@@ -450,21 +450,20 @@ def process_new_message(label, message_id):
         sender = message.get("from", {}).get(
             "emailAddress", {}).get("address", "unknown")
         subject = message.get("subject", "(no subject)")
-        body_preview = (message.get("bodyPreview") or "")
 
         print()
 
         if is_spam(message, label):
             mark_as_read(label, message_id)
             print(get_time(),
-                  f"[{label}] Marked as read: '{subject}' from '{sender}' ({body_preview})")
+                  f"[{label}] Marked as read: '{subject}' from '{sender}'")
             log_marked_read(label, sender, subject)
         else:
             print(get_time(),
-                  f"[{label}] Left unread: '{subject}' from '{sender}' ({body_preview})")
+                  f"[{label}] Left unread: '{subject}' from '{sender}'")
     except Exception as e:
         print(get_time(),
-              f"[{label}] Error processing message {message_id}: {e}")
+              f"[{label}] Error processing message {message_id} from '{sender}': {e}")
 
 
 if __name__ == "__main__":
