@@ -337,14 +337,13 @@ def get_header(message, header_name):
     return None
 
 
-def is_spam(message, label):
+def is_spam(message):
     sender = (message.get("from", {}).get(
         "emailAddress", {}).get("address") or "")
+    subject = message.get("subject")
 
     if any(sender.lower().endswith("@" + d) for d in TRUSTED_DOMAINS):
-        print(get_time(),
-              f"[{label}] Marking following mail as NOT SPAM. Reason: Trusted sender")
-        return False
+        return False, "Trusted sender"
 
     # detects '@' preceded by exactly 8 uppercase char/digits, followed by 28 char/digits
     # Used to detect: AAAAAA1A@AAAA8NWA0OS7FZLAAAAAAAAAAAAD.com
@@ -357,22 +356,16 @@ def is_spam(message, label):
         r"^[^@\s]+@(?![^@\s]+\.[A-Za-z]{1,3}$)[^@\s]+$")
 
     if real_mail_pattern.search(sender) or missing_domain_extension_pattern.search(sender):
-        print(get_time(),
-              f"[{label}] Marking following mail as SPAM. Reason: sender not matching email pattern")
-        return True
+        return True, "Sender not matching email pattern"
 
     subject = (message.get("subject") or "").lower()
     body_preview = (message.get("bodyPreview") or "").lower()
     text = f"{subject} {body_preview}"
 
     if any(keyword in text for keyword in SPAM_KEYWORDS):
-        print(get_time(),
-              f"[{label}] Marking following mail as ---SPAM---. Reason: spam keywords detected in subject or body")
-        return True
+        return True, "Spam keywords detected in subject or body"
 
-    print(get_time(),
-          f"[{label}] Marking following mail as ---NOT SPAM---. Reason: No condition returned True")
-    return False
+    return False, "No condition returned True"
 
 # ---------------------------------------------------------------------------
 # Message actions - per account (each needs that account's own token)
@@ -428,8 +421,8 @@ def delete_message(label, message_id):
 LOG_FILE = os.path.join(DATA_DIR, "marked_read.log")
 
 
-def log_marked_read(label, sender, subject):
-    line = f"{datetime.now(timezone.utc).isoformat()}\t{label}\t{sender}\t{subject}\n"
+def log_marked(label, sender, subject, is_spam):
+    line = f"{datetime.now(timezone.utc).isoformat()}\t{label}\t{"SPAM" if is_spam else "LEGIT"}\t{sender}\t{subject}\n"
     with open(LOG_FILE, "a") as f:
         f.write(line)
 
@@ -460,31 +453,39 @@ def notifications():
 
 
 def process_new_message(label, message_id):
+    sender = "unknown"
+    subject = "(no subject)"
+    folder_name = "unknown"
+
     try:
         message = fetch_message(label, message_id)
         sender = message.get("from", {}).get(
             "emailAddress", {}).get("address", "unknown")
         subject = message.get("subject", "(no subject)")
 
-        print()
-
-        if is_spam(message, label):
-            mark_as_read(label, message_id)
-            print(get_time(),
-                  f"[{label}] Marked as read: '{subject}' from '{sender}'")
-            log_marked_read(label, sender, subject)
-        else:
-            print(get_time(),
-                  f"[{label}] Left unread: '{subject}' from '{sender}'")
-
         folder_id = message.get("parentFolderId")
-        folder_name = get_folder_name(
-            label, folder_id) if folder_id else "unknown"
-        print(
-            f"The previous message was received in {get_folder_name(label, folder_name)}")
+        if folder_id:
+            try:
+                folder_name = get_folder_name(label, folder_id)
+            except Exception as e:
+                print(f"Error when getting the folder's name: {e}")
+
+        spam_condition, reason = is_spam(message)
+        time_str = get_time()
+
+        if spam_condition:
+            mark_as_read(label, message_id)
+            print(
+                f"{time_str} [{label}] ---SPAM--- Reason: {reason} ('{subject}' from '{sender}' received in '{folder_name}')")
+            log_marked(label, sender, subject, True)
+        else:
+            print(
+                f"{time_str} [{label}] ---LEGIT--- Reason: {reason} ('{subject}' from '{sender}' received in '{folder_name}')")
+            log_marked(label, sender, subject, False)
+
     except Exception as e:
-        print(get_time(),
-              f"[{label}] Error processing message {message_id} from '{sender}': {e} \n{traceback.print_exc()}")
+        print(
+            f"{get_time()} [{label}] Error processing message '{subject}' from '{sender}': {e}\n{traceback.format_exc()}")
 
 
 if __name__ == "__main__":
