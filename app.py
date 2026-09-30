@@ -473,14 +473,17 @@ def process_new_message(label, message_id):
         spam_condition, reason = is_spam(message)
         time_str = get_time()
 
+        subject_formatted = subject[:17] + \
+            '...' if len(subject) > 20 else subject
+
         if spam_condition:
             mark_as_read(label, message_id)
             print(
-                f"{time_str} [{label}] ---SPAM--- Reason: {reason} ('{subject}' from '{sender}' received in '{folder_name}')")
+                f"{time_str} [{label}]-SPAM-: {reason} ('{subject_formatted}' from '{sender}'. Folder: '{folder_name}')")
             log_marked(label, sender, subject, True)
         else:
             print(
-                f"{time_str} [{label}] ---LEGIT--- Reason: {reason} ('{subject}' from '{sender}' received in '{folder_name}')")
+                f"{time_str} [{label}]-LEGIT-: {reason} ('{subject_formatted}' from '{sender}'. Folder: '{folder_name}')")
             log_marked(label, sender, subject, False)
 
     except Exception as e:
