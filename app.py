@@ -370,13 +370,6 @@ def is_spam(message, label):
               f"[{label}] Marking following mail as ---SPAM---. Reason: spam keywords detected in subject or body")
         return True
 
-    # Match any lowercase letter
-    lowercase_letter_pattern = re.compile(r"\p{Ll}")
-    if (not lowercase_letter_pattern.search(subject)) and (not lowercase_letter_pattern.search(body_preview)):
-        print(get_time(),
-              f"[{label}] Marking following mail as ---SPAM---. Reason: no lowercase letter detected in subject or body preview")
-        return True
-
     print(get_time(),
           f"[{label}] Marking following mail as ---NOT SPAM---. Reason: No condition returned True")
     return False
