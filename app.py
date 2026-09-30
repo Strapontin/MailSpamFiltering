@@ -39,6 +39,7 @@ import requests
 from flask import Flask, request, Response
 from waitress import serve
 import re
+import traceback
 
 # ---------------------------------------------------------------------------
 # Configuration - set these via environment variables (see .env.example)
@@ -463,7 +464,7 @@ def process_new_message(label, message_id):
                   f"[{label}] Left unread: '{subject}' from '{sender}'")
     except Exception as e:
         print(get_time(),
-              f"[{label}] Error processing message {message_id} from '{sender}': {e}")
+              f"[{label}] Error processing message {message_id} from '{sender}': {e} \n{traceback.print_exc()}")
 
 
 if __name__ == "__main__":
