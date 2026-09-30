@@ -382,11 +382,32 @@ def is_spam(message, label):
 def fetch_message(label, message_id):
     resp = requests.get(
         f"{GRAPH_ROOT}/me/messages/{message_id}"
-        "?$select=subject,bodyPreview,from,internetMessageHeaders",
+        "?$select=subject,bodyPreview,from,internetMessageHeaders,parentFolderId",
         headers=graph_headers(label),
     )
     resp.raise_for_status()
     return resp.json()
+
+
+_folder_name_cache = {}
+
+
+def get_folder_name(label, folder_id):
+    key = (label, folder_id)
+
+    if key in _folder_name_cache:
+        return _folder_name_cache[key]
+
+    resp = requests.get(
+        f"{GRAPH_ROOT}/me/mailFolders/{folder_id}",
+        headers=graph_headers(label),
+    )
+
+    resp.raise_for_status()
+    name = resp.json().get("displayName", folder_id)
+    _folder_name_cache[key] = name
+
+    return name
 
 
 def mark_as_read(label, message_id):
@@ -455,6 +476,12 @@ def process_new_message(label, message_id):
         else:
             print(get_time(),
                   f"[{label}] Left unread: '{subject}' from '{sender}'")
+
+        folder_id = message.get("parentFolderId")
+        folder_name = get_folder_name(
+            label, folder_id) if folder_id else "unknown"
+        print(
+            f"The previous message was received in {get_folder_name(label, folder_name)}")
     except Exception as e:
         print(get_time(),
               f"[{label}] Error processing message {message_id} from '{sender}': {e} \n{traceback.print_exc()}")
