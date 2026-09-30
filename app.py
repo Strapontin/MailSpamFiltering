@@ -422,7 +422,7 @@ LOG_FILE = os.path.join(DATA_DIR, "marked_read.log")
 
 
 def log_marked(label, sender, subject, is_spam):
-    line = f"{datetime.now(timezone.utc).isoformat()}\t{label}\t{"SPAM" if is_spam else "LEGIT"}\t{sender}\t{subject}\n"
+    line = f"{datetime.now(timezone.utc).isoformat()}\t{label}\t{'SPAM' if is_spam else 'LEGIT'}\t{sender}\t{subject}\n"
     with open(LOG_FILE, "a") as f:
         f.write(line)
 
