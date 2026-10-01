@@ -327,6 +327,7 @@ def subscription_renewal_loop():
 SPAM_KEYWORDS = ["free money", "act now",
                  "wire transfer", "you have won", "crypto giveaway"]
 TRUSTED_DOMAINS = ["microsoft.com"]  # never flag these as spam
+SPAM_DOMAINS = ["pridesolutions.nl"]
 
 
 def get_header(message, header_name):
@@ -344,6 +345,9 @@ def is_spam(message):
 
     if any(sender.lower().endswith("@" + d) for d in TRUSTED_DOMAINS):
         return False, "Trusted sender"
+
+    if any(sender.lower().endswith("@" + d) for d in SPAM_DOMAINS):
+        return True, "Spam sender"
 
     # detects '@' preceded by exactly 8 uppercase char/digits, followed by 28 char/digits
     # Used to detect: AAAAAA1A@AAAA8NWA0OS7FZLAAAAAAAAAAAAD.com
