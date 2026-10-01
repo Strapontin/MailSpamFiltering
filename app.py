@@ -452,6 +452,9 @@ def notifications():
     return Response(status=202)
 
 
+last_label_processed = ""
+
+
 def process_new_message(label, message_id):
     sender = "unknown"
     subject = "(no subject)"
@@ -473,8 +476,12 @@ def process_new_message(label, message_id):
         spam_condition, reason = is_spam(message)
         time_str = get_time()
 
-        subject_formatted = subject[:17] + \
-            '...' if len(subject) > 20 else subject
+        subject_formatted = subject[:14] + \
+            '...' if len(subject) > 17 else subject
+
+        if label != last_label_processed:
+            last_label_processed = label
+            print()
 
         if spam_condition:
             mark_as_read(label, message_id)
