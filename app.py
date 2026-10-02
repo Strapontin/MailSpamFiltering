@@ -460,6 +460,7 @@ last_label_processed = ""
 
 
 def process_new_message(label, message_id):
+    global last_label_processed
     sender = "unknown"
     subject = "(no subject)"
     folder_name = "unknown"
