@@ -402,7 +402,26 @@ def subscription_renewal_loop():
 SPAM_KEYWORDS = ["free money", "act now",
                  "wire transfer", "you have won", "crypto giveaway"]
 TRUSTED_DOMAINS = ["microsoft.com"]  # never flag these as spam
-SPAM_DOMAINS = ["pridesolutions.nl", "mail.iiDOCPDsZP0.com", "in2.getdrip.com", "hudzer.com"]
+
+# Each entry is a regex matched against the sender address. Matched
+# case-sensitively on purpose - some patterns below (the "noreply@mail....com"
+# one) rely on the actual letter case to tell a random spam subdomain apart
+# from a real one like mail.anthropic.com, and re.IGNORECASE would defeat
+# that. Plain domains are escaped and anchored to "ends with @domain", so
+# they behave like the old plain-string list did (case stops mattering for
+# those since sender domains are effectively always lowercase anyway).
+SPAM_DOMAINS = [
+    "@" + re.escape("pridesolutions.nl") + "$",
+    "@" + re.escape("in2.getdrip.com") + "$",
+    "@" + re.escape("hudzer.com") + "$",
+    # Match like: sender@OPTIONAL.origintip.com
+    r"@([a-zA-Z0-9.-]*\.)?origintip\.com$",
+    # noreply@mail.<11 random mixed-case chars>.com. Requires both an
+    # uppercase and a lowercase letter in that segment, so a real,
+    # all-lowercase subdomain (mail.anthropic.com) never matches.
+    r"^noreply@mail\.(?=[A-Za-z0-9]*[A-Z])(?=[A-Za-z0-9]*[a-z])[A-Za-z0-9]{11}\.com$",
+]
+SPAM_DOMAIN_PATTERNS = [re.compile(pattern) for pattern in SPAM_DOMAINS]
 
 
 def get_header(message, header_name):
@@ -421,7 +440,7 @@ def is_spam(message):
     if any(sender.lower().endswith("@" + d) for d in TRUSTED_DOMAINS):
         return False, "Trusted sender"
 
-    if any(sender.lower().endswith("@" + d) for d in SPAM_DOMAINS):
+    if any(pattern.search(sender) for pattern in SPAM_DOMAIN_PATTERNS):
         return True, "Spam sender"
 
     # detects '@' preceded by exactly 8 uppercase char/digits, followed by 28 char/digits
