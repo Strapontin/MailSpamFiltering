@@ -105,6 +105,10 @@ def processed_file(label):
     return os.path.join(DATA_DIR, f"processed_messages_{label}.json")
 
 
+def delta_file(label):
+    return os.path.join(DATA_DIR, f"delta_{label}.json")
+
+
 # Tracks (message_id, folder_id) pairs already handled, per account, so a
 # message is only ever acted on once - regardless of how many "created" or
 # "updated" notifications Graph later sends for it (our own mark_as_read()
@@ -229,6 +233,29 @@ def graph_headers(label):
         "Content-Type": "application/json",
     }
 
+
+GRAPH_RETRY_STATUSES = (429, 503, 504)
+
+
+def graph_request(label, method, url, headers=None, max_attempts=5, **kwargs):
+    """requests.request() against Graph, retrying when Graph throttles us
+    (429) or is briefly unavailable (503/504). Waits for the Retry-After
+    header Graph sends, falling back to exponential backoff. Returns the
+    final response - callers still decide what to do with non-2xx codes."""
+    for attempt in range(1, max_attempts + 1):
+        resp = requests.request(
+            method, url, headers={**graph_headers(label), **(headers or {})}, **kwargs)
+        if resp.status_code not in GRAPH_RETRY_STATUSES or attempt == max_attempts:
+            return resp
+        try:
+            wait = int(resp.headers.get("Retry-After", ""))
+        except ValueError:
+            wait = 2 ** attempt
+        wait = min(max(wait, 1), 60)
+        print(get_time(),
+              f"[{label}] Graph returned {resp.status_code}, retrying in {wait}s (attempt {attempt}/{max_attempts})")
+        time.sleep(wait)
+
 # ---------------------------------------------------------------------------
 # Tunnel readiness (shared across all accounts - one webhook URL for all)
 # ---------------------------------------------------------------------------
@@ -302,12 +329,24 @@ SUBSCRIPTION_RESOURCE = "me/mailFolders('junkemail')/messages"
 SUBSCRIPTION_CHANGE_TYPE = "created,updated"
 
 
+def lifecycle_url():
+    """Lifecycle notifications (missed / subscriptionRemoved /
+    reauthorizationRequired) go to /lifecycle on the same host as
+    NOTIFICATION_URL. Computed at call time since NOTIFICATION_URL can be
+    filled in at startup from the tunnel file."""
+    base = NOTIFICATION_URL.rstrip("/")
+    if base.endswith("/notifications"):
+        base = base[:-len("/notifications")]
+    return f"{base}/lifecycle"
+
+
 def create_subscription(label):
     expiration = (datetime.now(timezone.utc) +
                   timedelta(minutes=4200)).isoformat()
     body = {
         "changeType": SUBSCRIPTION_CHANGE_TYPE,
         "notificationUrl": NOTIFICATION_URL,
+        "lifecycleNotificationUrl": lifecycle_url(),
         "resource": SUBSCRIPTION_RESOURCE,
         "expirationDateTime": expiration,
         "clientState": client_state_for(label),
@@ -353,6 +392,7 @@ def ensure_subscription(label):
         and existing_sub.get("notificationUrl") == NOTIFICATION_URL
         and existing_sub.get("resource") == SUBSCRIPTION_RESOURCE
         and existing_sub.get("changeType") == SUBSCRIPTION_CHANGE_TYPE
+        and existing_sub.get("lifecycleNotificationUrl") == lifecycle_url()
     )
 
     if matches_current_config:
@@ -372,6 +412,9 @@ def ensure_subscription(label):
             if existing_sub.get("changeType") != SUBSCRIPTION_CHANGE_TYPE:
                 changes.append(
                     f"prev changeType: '{existing_sub.get('changeType')}', now changeType: '{SUBSCRIPTION_CHANGE_TYPE}'")
+            if existing_sub.get("lifecycleNotificationUrl") != lifecycle_url():
+                changes.append(
+                    f"prev lifecycle url: '{existing_sub.get('lifecycleNotificationUrl')}', now lifecycle url: '{lifecycle_url()}'")
             print(get_time(
             ), f"[{label}] Subscription config changed ({'; '.join(changes)}), recreating subscription.")
             delete_subscription(label, existing_sub["id"])
@@ -393,6 +436,106 @@ def subscription_renewal_loop():
                     create_subscription(label)
                 except Exception as e2:
                     print(get_time(), f"[{label}] Recreate also failed: {e2}")
+
+# ---------------------------------------------------------------------------
+# Delta resync - catches changes Graph never sent a notification for
+# ---------------------------------------------------------------------------
+#
+# Graph doesn't guarantee one notification per change: under bursts it
+# throttles and drops some, and says so by sending a "missed" lifecycle
+# event. A delta query on the Junk folder returns every message that changed
+# since the last saved deltaLink, regardless of which notifications actually
+# arrived. Each changed message goes through process_new_message(), so
+# claim_message() still skips anything push notifications already handled.
+
+DELTA_START_URL = f"{GRAPH_ROOT}/{SUBSCRIPTION_RESOURCE}/delta?$select=parentFolderId"
+
+# A safety-net resync also runs on this interval, since "missed" lifecycle
+# events are themselves best-effort. 0 disables it.
+RESYNC_INTERVAL_MINUTES = int(os.environ.get("RESYNC_INTERVAL_MINUTES", "15"))
+
+_resync_locks = {label: threading.Lock() for label in ACCOUNT_LABELS}
+
+
+def _resync_lock(label):
+    return _resync_locks.setdefault(label, threading.Lock())
+
+
+def _load_delta_link(label):
+    path = delta_file(label)
+    if not os.path.exists(path):
+        return None
+    try:
+        return json.load(open(path)).get("deltaLink")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_delta_link(label, delta_link):
+    path = delta_file(label)
+    tmp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(tmp_path, "w") as f:
+        json.dump({"deltaLink": delta_link}, f)
+    os.replace(tmp_path, path)
+
+
+def resync_junk(label, reason):
+    """Pull every Junk message that changed since the last resync and process
+    them. With no saved delta state (first run), only records a baseline -
+    messages already sitting in Junk are not processed, so the bot doesn't
+    suddenly act on the whole folder's history."""
+    # One resync per account at a time; a second trigger waits and then
+    # picks up whatever changed after the first one finished.
+    with _resync_lock(label):
+        delta_link = _load_delta_link(label)
+        baseline = delta_link is None
+        url = delta_link or DELTA_START_URL
+        restarted = False
+        message_ids = []
+        new_delta_link = None
+
+        while url:
+            resp = graph_request(label, "GET", url, headers={
+                                 "Prefer": "odata.maxpagesize=50"})
+            if resp.status_code == 410 and not restarted:
+                # Saved sync state expired on Graph's side - start over.
+                print(get_time(),
+                      f"[{label}] Delta state expired, recording a new baseline (changes since the last resync may be skipped)")
+                url, baseline, restarted, message_ids = DELTA_START_URL, True, True, []
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if not baseline:
+                message_ids.extend(item["id"] for item in data.get(
+                    "value", []) if "@removed" not in item)
+            url = data.get("@odata.nextLink")
+            new_delta_link = data.get("@odata.deltaLink", new_delta_link)
+
+        if baseline:
+            print(get_time(),
+                  f"[{label}] Delta baseline recorded ({reason}); existing Junk messages were not processed")
+        else:
+            message_ids = list(dict.fromkeys(message_ids))
+            if message_ids:
+                print(get_time(),
+                      f"[{label}] Resync ({reason}): {len(message_ids)} changed message(s) to check")
+            # Sequential on purpose - spawning a thread per message here is
+            # exactly the kind of burst that gets us throttled.
+            for message_id in message_ids:
+                process_new_message(label, message_id)
+
+        if new_delta_link:
+            _save_delta_link(label, new_delta_link)
+
+
+def periodic_resync_loop():
+    while True:
+        time.sleep(RESYNC_INTERVAL_MINUTES * 60)
+        for label in ACCOUNT_LABELS:
+            try:
+                resync_junk(label, "periodic")
+            except Exception as e:
+                print(get_time(), f"[{label}] Periodic resync failed: {e}")
 
 # ---------------------------------------------------------------------------
 # Spam logic - customize this function
@@ -471,10 +614,10 @@ def is_spam(message):
 
 
 def fetch_message(label, message_id):
-    resp = requests.get(
+    resp = graph_request(
+        label, "GET",
         f"{GRAPH_ROOT}/me/messages/{message_id}"
         "?$select=subject,bodyPreview,from,internetMessageHeaders,parentFolderId",
-        headers=graph_headers(label),
     )
     resp.raise_for_status()
     return resp.json()
@@ -489,10 +632,8 @@ def get_folder_name(label, folder_id):
     if key in _folder_name_cache:
         return _folder_name_cache[key]
 
-    resp = requests.get(
-        f"{GRAPH_ROOT}/me/mailFolders/{folder_id}",
-        headers=graph_headers(label),
-    )
+    resp = graph_request(
+        label, "GET", f"{GRAPH_ROOT}/me/mailFolders/{folder_id}")
 
     resp.raise_for_status()
     name = resp.json().get("displayName", folder_id)
@@ -502,9 +643,8 @@ def get_folder_name(label, folder_id):
 
 
 def mark_as_read(label, message_id):
-    resp = requests.patch(
-        f"{GRAPH_ROOT}/me/messages/{message_id}",
-        headers=graph_headers(label),
+    resp = graph_request(
+        label, "PATCH", f"{GRAPH_ROOT}/me/messages/{message_id}",
         json={"isRead": True},
     )
     resp.raise_for_status()
@@ -548,6 +688,50 @@ def notifications():
             label, message_id), daemon=True).start()
 
     return Response(status=202)
+
+
+@app_flask.route("/lifecycle", methods=["GET", "POST"])
+def lifecycle():
+    validation_token = request.args.get("validationToken")
+    if validation_token:
+        return Response(validation_token, mimetype="text/plain", status=200)
+
+    data = request.get_json(silent=True) or {}
+    for notif in data.get("value", []):
+        label = label_for_client_state(notif.get("clientState"))
+        if label is None:
+            continue  # doesn't match any known account - ignore
+        threading.Thread(target=handle_lifecycle_event, args=(
+            label, notif.get("lifecycleEvent"), notif.get("subscriptionId")), daemon=True).start()
+
+    return Response(status=202)
+
+
+def handle_lifecycle_event(label, event, sub_id):
+    try:
+        print(get_time(), f"[{label}] Lifecycle event received: {event}")
+        current_sub_id = None
+        if os.path.exists(subscription_file(label)):
+            current_sub_id = json.load(open(subscription_file(label))).get("id")
+
+        if event == "missed":
+            resync_junk(label, "Graph reported missed notifications")
+        elif sub_id != current_sub_id:
+            # Event for a subscription we've already replaced - nothing to do.
+            print(get_time(),
+                  f"[{label}] Ignoring '{event}' for old subscription {sub_id}")
+        elif event == "reauthorizationRequired":
+            try:
+                renew_subscription(label, sub_id)
+            except Exception:
+                create_subscription(label)
+        elif event == "subscriptionRemoved":
+            create_subscription(label)
+            # Anything that arrived while there was no subscription.
+            resync_junk(label, "subscription was removed")
+    except Exception as e:
+        print(
+            f"{get_time()} [{label}] Error handling lifecycle event '{event}': {e}\n{traceback.format_exc()}")
 
 
 last_label_processed = ""
@@ -638,8 +822,16 @@ if __name__ == "__main__":
         # triggers device-code login on first run, one prompt per account
         get_access_token(label)
         ensure_subscription(label)
+        # Catch up on anything that changed while the bot was down (or
+        # record the first baseline).
+        try:
+            resync_junk(label, "startup")
+        except Exception as e:
+            print(get_time(), f"[{label}] Startup resync failed: {e}")
 
     threading.Thread(target=subscription_renewal_loop, daemon=True).start()
+    if RESYNC_INTERVAL_MINUTES > 0:
+        threading.Thread(target=periodic_resync_loop, daemon=True).start()
 
     print(get_time(), "All accounts set up. Flask is running...")
     threading.Event().wait()
