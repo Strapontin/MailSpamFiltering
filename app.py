@@ -101,6 +101,58 @@ def subscription_file(label):
     return os.path.join(DATA_DIR, f"subscription_{label}.json")
 
 
+def processed_file(label):
+    return os.path.join(DATA_DIR, f"processed_messages_{label}.json")
+
+
+# Tracks (message_id, folder_id) pairs already handled, per account, so a
+# message is only ever acted on once - regardless of how many "created" or
+# "updated" notifications Graph later sends for it (our own mark_as_read()
+# write triggers one, and so does e.g. a user manually marking a message
+# unread again, which should NOT make the bot re-process or re-mark it).
+_processed_locks = {label: threading.Lock() for label in ACCOUNT_LABELS}
+_processed_cache = {}  # label -> set of "message_id|folder_id" strings
+
+
+def _processed_lock(label):
+    return _processed_locks.setdefault(label, threading.Lock())
+
+
+def _load_processed(label):
+    if label not in _processed_cache:
+        path = processed_file(label)
+        entries = set()
+        if os.path.exists(path):
+            try:
+                entries = set(json.load(open(path)))
+            except (json.JSONDecodeError, OSError):
+                entries = set()
+        _processed_cache[label] = entries
+    return _processed_cache[label]
+
+
+def _save_processed(label, entries):
+    path = processed_file(label)
+    tmp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(sorted(entries), f)
+    os.replace(tmp_path, path)
+
+
+def claim_message(label, message_id, folder_id):
+    """Returns True the first time this (message_id, folder_id) pair is
+    seen for this account, and records it. Returns False (caller should
+    skip) if it was already processed before."""
+    key = f"{message_id}|{folder_id}"
+    with _processed_lock(label):
+        entries = _load_processed(label)
+        if key in entries:
+            return False
+        entries.add(key)
+        _save_processed(label, entries)
+        return True
+
+
 def client_state_for(label):
     return f"{CLIENT_STATE_BASE}:{label}"
 
@@ -241,12 +293,20 @@ def delete_subscription(label, sub_id):
 
 SUBSCRIPTION_RESOURCE = "me/mailFolders('junkemail')/messages"
 
+# "created" alone misses mail that lands in Junk via a post-delivery move
+# (e.g. Exchange's Zero-Hour Auto Purge reclassifying a message that was
+# already delivered to the Inbox) - a move is reported as "updated", not
+# "created", since the message itself isn't new. "updated" also fires on
+# our own mark_as_read() write and on a user manually toggling read/unread;
+# claim_message() is what keeps those from being reprocessed.
+SUBSCRIPTION_CHANGE_TYPE = "created,updated"
+
 
 def create_subscription(label):
     expiration = (datetime.now(timezone.utc) +
                   timedelta(minutes=4200)).isoformat()
     body = {
-        "changeType": "created",
+        "changeType": SUBSCRIPTION_CHANGE_TYPE,
         "notificationUrl": NOTIFICATION_URL,
         "resource": SUBSCRIPTION_RESOURCE,
         "expirationDateTime": expiration,
@@ -292,6 +352,7 @@ def ensure_subscription(label):
         existing_sub
         and existing_sub.get("notificationUrl") == NOTIFICATION_URL
         and existing_sub.get("resource") == SUBSCRIPTION_RESOURCE
+        and existing_sub.get("changeType") == SUBSCRIPTION_CHANGE_TYPE
     )
 
     if matches_current_config:
@@ -308,6 +369,9 @@ def ensure_subscription(label):
             if existing_sub.get("resource") != SUBSCRIPTION_RESOURCE:
                 changes.append(
                     f"prev resource: '{existing_sub.get('resource')}', now resource: '{SUBSCRIPTION_RESOURCE}'")
+            if existing_sub.get("changeType") != SUBSCRIPTION_CHANGE_TYPE:
+                changes.append(
+                    f"prev changeType: '{existing_sub.get('changeType')}', now changeType: '{SUBSCRIPTION_CHANGE_TYPE}'")
             print(get_time(
             ), f"[{label}] Subscription config changed ({'; '.join(changes)}), recreating subscription.")
             delete_subscription(label, existing_sub["id"])
@@ -488,6 +552,14 @@ def process_new_message(label, message_id):
                 folder_name = get_folder_name(label, folder_id)
             except Exception as e:
                 print(f"Error when getting the folder's name: {e}")
+
+        # Subscribed to both "created" and "updated" events; this message
+        # may have already been handled by an earlier notification (our
+        # own mark_as_read() write, or an unrelated update like the user
+        # toggling it back to unread). Only act on each (message, folder)
+        # once.
+        if not claim_message(label, message_id, folder_id):
+            return
 
         spam_condition, reason = is_spam(message)
         time_str = get_time()
