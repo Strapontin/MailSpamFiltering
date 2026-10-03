@@ -239,14 +239,16 @@ def delete_subscription(label, sub_id):
               f"[{label}] Warning: could not delete old subscription {sub_id}: {resp.status_code} {resp.text}")
 
 
+SUBSCRIPTION_RESOURCE = "me/mailFolders('junkemail')/messages"
+
+
 def create_subscription(label):
     expiration = (datetime.now(timezone.utc) +
                   timedelta(minutes=4200)).isoformat()
     body = {
         "changeType": "created",
         "notificationUrl": NOTIFICATION_URL,
-        # "resource": "me/mailFolders('inbox')/messages",
-        "resource": "me/mailFolders('junkemail')/messages",
+        "resource": SUBSCRIPTION_RESOURCE,
         "expirationDateTime": expiration,
         "clientState": client_state_for(label),
     }
@@ -286,19 +288,28 @@ def ensure_subscription(label):
     if os.path.exists(subscription_file(label)):
         existing_sub = json.load(open(subscription_file(label)))
 
-    if existing_sub and existing_sub.get("notificationUrl") == NOTIFICATION_URL:
+    matches_current_config = (
+        existing_sub
+        and existing_sub.get("notificationUrl") == NOTIFICATION_URL
+        and existing_sub.get("resource") == SUBSCRIPTION_RESOURCE
+    )
+
+    if matches_current_config:
         try:
             renew_subscription(label, existing_sub["id"])
         except Exception:
             create_subscription(label)
     else:
         if existing_sub:
-            print(
-                get_time(),
-                f"[{label}] Notification URL changed since last run "
-                f"(was '{existing_sub.get('notificationUrl')}', now '{NOTIFICATION_URL}'), "
-                f"recreating subscription."
-            )
+            changes = []
+            if existing_sub.get("notificationUrl") != NOTIFICATION_URL:
+                changes.append(
+                    f"prev url: '{existing_sub.get('notificationUrl')}', now url: '{NOTIFICATION_URL}'")
+            if existing_sub.get("resource") != SUBSCRIPTION_RESOURCE:
+                changes.append(
+                    f"prev resource: '{existing_sub.get('resource')}', now resource: '{SUBSCRIPTION_RESOURCE}'")
+            print(get_time(
+            ), f"[{label}] Subscription config changed ({'; '.join(changes)}), recreating subscription.")
             delete_subscription(label, existing_sub["id"])
         create_subscription(label)
 
