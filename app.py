@@ -448,6 +448,7 @@ def subscription_renewal_loop():
 # arrived. Each changed message goes through process_new_message(), so
 # claim_message() still skips anything push notifications already handled.
 
+
 DELTA_START_URL = f"{GRAPH_ROOT}/{SUBSCRIPTION_RESOURCE}/delta?$select=parentFolderId"
 
 # A safety-net resync also runs on this interval, since "missed" lifecycle
@@ -712,7 +713,8 @@ def handle_lifecycle_event(label, event, sub_id):
         print(get_time(), f"[{label}] Lifecycle event received: {event}")
         current_sub_id = None
         if os.path.exists(subscription_file(label)):
-            current_sub_id = json.load(open(subscription_file(label))).get("id")
+            current_sub_id = json.load(
+                open(subscription_file(label))).get("id")
 
         if event == "missed":
             resync_junk(label, "Graph reported missed notifications")
@@ -777,11 +779,11 @@ def process_new_message(label, message_id):
         if spam_condition:
             mark_as_read(label, message_id)
             print(
-                f"{time_str} [{label}]-SPAM-: {reason} ('{subject_formatted}' from '{sender}'. Folder: '{folder_name}')")
+                f"{time_str} [{label}]-SPAM-: {reason}\n\tSubject: '{subject_formatted}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, True)
         else:
             print(
-                f"{time_str} [{label}]-LEGIT-: {reason} ('{subject_formatted}' from '{sender}'. Folder: '{folder_name}')")
+                f"{time_str} [{label}]-LEGIT-: {reason}\n\tSubject: '{subject_formatted}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, False)
 
     except Exception as e:
