@@ -327,7 +327,7 @@ def subscription_renewal_loop():
 SPAM_KEYWORDS = ["free money", "act now",
                  "wire transfer", "you have won", "crypto giveaway"]
 TRUSTED_DOMAINS = ["microsoft.com"]  # never flag these as spam
-SPAM_DOMAINS = ["pridesolutions.nl"]
+SPAM_DOMAINS = ["pridesolutions.nl, mail.iiDOCPDsZP0.com"]
 
 
 def get_header(message, header_name):
