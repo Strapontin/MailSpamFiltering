@@ -241,20 +241,12 @@ def delete_subscription(label, sub_id):
 
 SUBSCRIPTION_RESOURCE = "me/mailFolders('junkemail')/messages"
 
-# "created" alone misses messages that land in Junk via a post-delivery
-# move - e.g. Exchange's Zero-Hour Auto Purge reclassifying a message that
-# was already delivered to the Inbox. A move is reported as "updated", not
-# "created", since the message itself isn't new. "updated" also fires on
-# our own mark_as_read() PATCH, so process_new_message() must skip
-# already-read messages to avoid reprocessing its own write in a loop.
-SUBSCRIPTION_CHANGE_TYPE = "created,updated"
-
 
 def create_subscription(label):
     expiration = (datetime.now(timezone.utc) +
                   timedelta(minutes=4200)).isoformat()
     body = {
-        "changeType": SUBSCRIPTION_CHANGE_TYPE,
+        "changeType": "created",
         "notificationUrl": NOTIFICATION_URL,
         "resource": SUBSCRIPTION_RESOURCE,
         "expirationDateTime": expiration,
@@ -300,7 +292,6 @@ def ensure_subscription(label):
         existing_sub
         and existing_sub.get("notificationUrl") == NOTIFICATION_URL
         and existing_sub.get("resource") == SUBSCRIPTION_RESOURCE
-        and existing_sub.get("changeType") == SUBSCRIPTION_CHANGE_TYPE
     )
 
     if matches_current_config:
@@ -317,9 +308,6 @@ def ensure_subscription(label):
             if existing_sub.get("resource") != SUBSCRIPTION_RESOURCE:
                 changes.append(
                     f"prev resource: '{existing_sub.get('resource')}', now resource: '{SUBSCRIPTION_RESOURCE}'")
-            if existing_sub.get("changeType") != SUBSCRIPTION_CHANGE_TYPE:
-                changes.append(
-                    f"prev changeType: '{existing_sub.get('changeType')}', now changeType: '{SUBSCRIPTION_CHANGE_TYPE}'")
             print(get_time(
             ), f"[{label}] Subscription config changed ({'; '.join(changes)}), recreating subscription.")
             delete_subscription(label, existing_sub["id"])
@@ -402,7 +390,7 @@ def is_spam(message):
 def fetch_message(label, message_id):
     resp = requests.get(
         f"{GRAPH_ROOT}/me/messages/{message_id}"
-        "?$select=subject,bodyPreview,from,internetMessageHeaders,parentFolderId,isRead",
+        "?$select=subject,bodyPreview,from,internetMessageHeaders,parentFolderId",
         headers=graph_headers(label),
     )
     resp.raise_for_status()
@@ -493,14 +481,6 @@ def process_new_message(label, message_id):
         sender = message.get("from", {}).get(
             "emailAddress", {}).get("address", "unknown")
         subject = message.get("subject", "(no subject)")
-
-        # Now subscribed to "updated" as well as "created" (to catch mail
-        # moved into Junk after delivery, e.g. Exchange's Zero-Hour Auto
-        # Purge). mark_as_read() below is itself an update, which would
-        # otherwise re-trigger this handler on its own write. Already-read
-        # messages need no action, so stop here rather than loop.
-        if message.get("isRead"):
-            return
 
         folder_id = message.get("parentFolderId")
         if folder_id:
