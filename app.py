@@ -736,11 +736,7 @@ def handle_lifecycle_event(label, event, sub_id):
             f"{get_time()} [{label}] Error handling lifecycle event '{event}': {e}\n{traceback.format_exc()}")
 
 
-last_label_processed = ""
-
-
 def process_new_message(label, message_id):
-    global last_label_processed
     sender = "unknown"
     subject = "(no subject)"
     folder_name = "unknown"
@@ -769,9 +765,7 @@ def process_new_message(label, message_id):
         spam_condition, reason = is_spam(message)
         time_str = get_time()
 
-        if label != last_label_processed:
-            last_label_processed = label
-            print()
+        print()
 
         if spam_condition:
             mark_as_read(label, message_id)
