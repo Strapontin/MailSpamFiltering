@@ -769,9 +769,6 @@ def process_new_message(label, message_id):
         spam_condition, reason = is_spam(message)
         time_str = get_time()
 
-        subject_formatted = subject[:14] + \
-            '...' if len(subject) > 17 else subject
-
         if label != last_label_processed:
             last_label_processed = label
             print()
@@ -779,11 +776,11 @@ def process_new_message(label, message_id):
         if spam_condition:
             mark_as_read(label, message_id)
             print(
-                f"{time_str} [{label}]-SPAM-: {reason}\n\tSubject: '{subject_formatted}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
+                f"{time_str} [{label}] ---SPAM--- : {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, True)
         else:
             print(
-                f"{time_str} [{label}]-LEGIT-: {reason}\n\tSubject: '{subject_formatted}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
+                f"{time_str} [{label}] ---LEGIT-- -: {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, False)
 
     except Exception as e:
