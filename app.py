@@ -738,13 +738,17 @@ def handle_lifecycle_event(label, event, sub_id):
 
 def process_new_message(label, message_id):
     sender = "unknown"
+    sender_name = "unkown"
     subject = "(no subject)"
     folder_name = "unknown"
 
     try:
         message = fetch_message(label, message_id)
-        sender = message.get("from", {}).get(
-            "emailAddress", {}).get("address", "unknown")
+
+        email_address = message.get("from", {}).get("emailAddress", {})
+        sender = email_address.get("address", "unknown")
+        sender_name = email_address.get("name") or ""
+
         subject = message.get("subject", "(no subject)")
 
         folder_id = message.get("parentFolderId")
@@ -770,16 +774,16 @@ def process_new_message(label, message_id):
         if spam_condition:
             mark_as_read(label, message_id)
             print(
-                f"{time_str} [{label}] ---SPAM--- : {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
+                f"{time_str} [{label}] ---SPAM--- : {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}' ({sender_name})\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, True)
         else:
             print(
-                f"{time_str} [{label}] ---LEGIT-- -: {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}'\n\tFolder: '{folder_name}'")
+                f"{time_str} [{label}] ---LEGIT-- -: {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}' ({sender_name})\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, False)
 
     except Exception as e:
         print(
-            f"{get_time()} [{label}] Error processing message '{subject}' from '{sender}': {e}\n{traceback.format_exc()}")
+            f"{get_time()} [{label}] Error processing message '{subject}' from '{sender}' ({sender_name}): {e}\n{traceback.format_exc()}")
 
 
 if __name__ == "__main__":
