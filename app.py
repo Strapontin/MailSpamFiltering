@@ -558,6 +558,7 @@ SPAM_DOMAINS = [
     "@" + re.escape("pridesolutions.nl") + "$",
     "@" + re.escape("in2.getdrip.com") + "$",
     "@" + re.escape("hudzer.com") + "$",
+    re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
     # Match like: sender@OPTIONAL.origintip.com
     r"@([a-zA-Z0-9.-]*\.)?origintip\.com$",
     # noreply@mail.<11 random mixed-case chars>.com. Requires both an
