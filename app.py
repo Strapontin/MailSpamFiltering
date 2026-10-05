@@ -523,6 +523,12 @@ def resync_junk(label, reason):
             # Sequential on purpose - spawning a thread per message here is
             # exactly the kind of burst that gets us throttled.
             for message_id in message_ids:
+                message = fetch_message(label, message_id)
+                subject = message.get("subject", "(no subject)")
+                sender = message.get("from", {}).get(
+                    "emailAddress", {}).get("address") or ""
+                print(f"[{label}] Resync message: {subject} from {sender}")
+
                 process_new_message(label, message_id)
 
         if new_delta_link:
@@ -559,8 +565,12 @@ SPAM_DOMAINS = [
     "@" + re.escape("in2.getdrip.com") + "$",
     "@" + re.escape("hudzer.com") + "$",
     re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
+    re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
+    re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
+
     # Match like: sender@OPTIONAL.origintip.com
     r"@([a-zA-Z0-9.-]*\.)?origintip\.com$",
+
     # noreply@mail.<11 random mixed-case chars>.com. Requires both an
     # uppercase and a lowercase letter in that segment, so a real,
     # all-lowercase subdomain (mail.anthropic.com) never matches.

@@ -7,3 +7,5 @@ delete-subscriptions:; docker compose exec app sh -c 'rm -fv /data/subscription_
 delete-processed:; docker compose exec app sh -c 'rm -fv /data/processed_messages_*.json'
 
 update-cloudflared:; docker compose pull cloudflared && docker compose up -d --no-deps cloudflared
+
+read-markedread-logs:; docker compose exec app cat /data/marked_read.log
