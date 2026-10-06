@@ -587,6 +587,49 @@ def get_header(message, header_name):
     return None
 
 
+AUTH_RESULT_PATTERN = re.compile(
+    r"\b(spf|dkim|dmarc|compauth)=([a-z]+)", re.IGNORECASE)
+
+
+def get_auth_results(message):
+    """Parse Microsoft's Authentication-Results header into
+    {"spf": {"pass"}, "dkim": {"none"}, ...}. Graph lists headers top to
+    bottom, so get_header() returns the topmost one, which is the one added
+    by the last Microsoft hop (the one Outlook itself relies on). A message
+    can carry several DKIM signatures, hence a set per mechanism.
+    Returns None when the header is missing."""
+    header = get_header(message, "Authentication-Results")
+    if not header:
+        return None
+    results = {}
+    for mechanism, verdict in AUTH_RESULT_PATTERN.findall(header):
+        results.setdefault(mechanism.lower(), set()).add(verdict.lower())
+    return results
+
+
+def is_unverified(message):
+    """Approximates Outlook's "Unverified sender" indicator (the "?" in
+    place of the sender's avatar). Microsoft shows it when the message
+    passes neither SPF nor DKIM AND gets neither a DMARC pass nor a
+    composite authentication (compauth) pass. Graph does not expose the
+    indicator itself, so it is rebuilt from the Authentication-Results
+    header. A missing header is not treated as unverified: nothing to judge
+    from, so we don't flag."""
+    results = get_auth_results(message)
+    if results is None:
+        return False, ""
+
+    def passed(mechanism):
+        return "pass" in results.get(mechanism, set())
+
+    if passed("spf") or passed("dkim") or passed("dmarc") or passed("compauth"):
+        return False, ""
+
+    summary = " ".join(f"{mechanism}={'/'.join(sorted(verdicts))}"
+                       for mechanism, verdicts in sorted(results.items()))
+    return True, f"Unverified sender ({summary or 'no auth results'})"
+
+
 def is_spam(message):
     sender = (message.get("from", {}).get(
         "emailAddress", {}).get("address") or "")
@@ -594,6 +637,12 @@ def is_spam(message):
 
     if any(sender.lower().endswith("@" + d) for d in TRUSTED_DOMAINS):
         return False, "Trusted sender"
+
+    # Ranked above every other "spam" condition: this is the same signal
+    # Outlook shows to the user as "Unverified".
+    unverified, unverified_reason = is_unverified(message)
+    if unverified:
+        return True, unverified_reason
 
     if any(pattern.search(sender) for pattern in SPAM_DOMAIN_PATTERNS):
         return True, "Spam sender"
