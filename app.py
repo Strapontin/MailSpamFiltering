@@ -564,6 +564,8 @@ SPAM_DOMAINS = [
     "@" + re.escape("pridesolutions.nl") + "$",
     "@" + re.escape("in2.getdrip.com") + "$",
     "@" + re.escape("hudzer.com") + "$",
+    "@" + re.escape("rizalmedia.com") + "$",
+    "@" + re.escape("eurodivan.com") + "$",
     re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
     re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
     re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
@@ -838,7 +840,7 @@ def process_new_message(label, message_id):
             log_marked(label, sender, subject, True)
         else:
             print(
-                f"{time_str} [{label}] ---LEGIT-- -: {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}' ({sender_name})\n\tFolder: '{folder_name}'")
+                f"{time_str} [{label}] ---LEGIT---: {reason}\n\tSubject: '{subject}'\n\tFrom: '{sender}' ({sender_name})\n\tFolder: '{folder_name}'")
             log_marked(label, sender, subject, False)
 
     except Exception as e:
