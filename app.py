@@ -565,6 +565,7 @@ SPAM_DOMAINS = [
     "@" + re.escape("in2.getdrip.com") + "$",
     "@" + re.escape("hudzer.com") + "$",
     "^" + re.escape("doctolib-enquete.Fr."),
+    "@" + re.escape("affet.centerfordigitalart.com") + "$",
     re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
     re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
     re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
