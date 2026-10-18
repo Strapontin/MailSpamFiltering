@@ -568,9 +568,7 @@ SPAM_DOMAINS = [
     "@" + re.escape("affet.centerfordigitalart.com") + "$",
     "@" + re.escape("repellendusbvjhw.flexitwits.com") + "$",
     "@" + re.escape("metdomls.com") + "$",
-    re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
-    re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
-    re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
+    "@" + re.escape("quintodk.horizoncompetences.com") + "$",
 
     # Match like: sender@OPTIONAL.origintip.com
     r"@([a-zA-Z0-9.-]*\.)?origintip\.com$",
@@ -579,6 +577,15 @@ SPAM_DOMAINS = [
     # uppercase and a lowercase letter in that segment, so a real,
     # all-lowercase subdomain (mail.anthropic.com) never matches.
     r"^noreply@mail\.(?=[A-Za-z0-9]*[A-Z])(?=[A-Za-z0-9]*[a-z])[A-Za-z0-9]{11}\.com$",
+
+    # <8 uppercase/digits>@<18 lowercase/digits>.<9 uppercase/digits>.nl
+    # e.g. 3TW878NG@pf0dzddo1mq32dqkgs.BGE20RXK5.nl. The middle-label
+    # lookahead requires an uppercase letter so a normal lowercase .nl
+    # subdomain never matches.
+    r"^[A-Z0-9]{8}@[a-z0-9]{18}\.(?=[A-Z0-9]*[A-Z])[A-Z0-9]{9}\.nl$",
+    re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
+    re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
+    re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
 ]
 SPAM_DOMAIN_PATTERNS = [re.compile(pattern) for pattern in SPAM_DOMAINS]
 
@@ -637,7 +644,6 @@ def is_unverified(message):
 def is_spam(message):
     sender = (message.get("from", {}).get(
         "emailAddress", {}).get("address") or "")
-    subject = message.get("subject")
 
     if any(sender.lower().endswith("@" + d) for d in TRUSTED_DOMAINS):
         return False, "Trusted sender"
