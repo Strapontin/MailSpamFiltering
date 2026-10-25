@@ -568,7 +568,7 @@ SPAM_DOMAINS = [
     "@" + re.escape("affet.centerfordigitalart.com") + "$",
     "@" + re.escape("repellendusbvjhw.flexitwits.com") + "$",
     "@" + re.escape("metdomls.com") + "$",
-    "@" + re.escape("quintodk.horizoncompetences.com") + "$",
+    re.escape("horizoncompetences.com") + "$",
     re.escape("laformation.org") + "$",
 
     # Match like: sender@OPTIONAL.origintip.com
