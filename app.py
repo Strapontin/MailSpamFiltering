@@ -568,6 +568,9 @@ SPAM_DOMAINS = [
     "@" + re.escape("affet.centerfordigitalart.com") + "$",
     "@" + re.escape("repellendusbvjhw.flexitwits.com") + "$",
     "@" + re.escape("metdomls.com") + "$",
+    "@" + re.escape("clientes.partidasya.com") + "$",
+    "@" + re.escape("contactimmobilier.net") + "$",
+    "@" + re.escape("POpeMWHyY.org") + "$",
     re.escape("horizoncompetences.com") + "$",
     re.escape("laformation.org") + "$",
 
@@ -584,6 +587,7 @@ SPAM_DOMAINS = [
     # lookahead requires an uppercase letter so a normal lowercase .nl
     # subdomain never matches.
     r"^[A-Z0-9]{8}@[a-z0-9]{18}\.(?=[A-Z0-9]*[A-Z])[A-Z0-9]{9}\.nl$",
+
     re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
     re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
     re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
