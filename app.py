@@ -588,6 +588,10 @@ SPAM_DOMAINS = [
     # subdomain never matches.
     r"^[A-Z0-9]{8}@[a-z0-9]{18}\.(?=[A-Z0-9]*[A-Z])[A-Z0-9]{9}\.nl$",
 
+    # <8 uppercase/digits>@<dashes><28 uppercase/digits>.com
+    # e.g. HWZMFFTA@---XRDLZ3SYE28V2PPCNNMM2THVJOPK.com.
+    r"^[A-Z0-9]{8}@-+[A-Z0-9]{28}\.com$",
+
     re.escape("noreply@mail-tlo-fai.gappsmtp.com") + "$",
     re.escape("noreply@mail-pei-vdq.scopeleadhub.com") + "$",
     re.escape("MaPrimeCEE@doloremquecdaor.selectapt.com") + "$",
