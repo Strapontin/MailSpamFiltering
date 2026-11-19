@@ -574,6 +574,11 @@ SPAM_DOMAINS = [
     re.escape("horizoncompetences.com") + "$",
     re.escape("laformation.org") + "$",
     re.escape(".sbs") + "$",
+    re.escape("xmfmwl.top") + "$",
+    re.escape("immobilierenfrance.com") + "$",
+    re.escape("jp.net") + "$",
+    re.escape("hello_at_deepstash_com"),
+    re.escape("SpinKong"),
 
     # Match like: sender@OPTIONAL.origintip.com
     r"@([a-zA-Z0-9.-]*\.)?origintip\.com$",
